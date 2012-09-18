@@ -1,5 +1,5 @@
 
-from MultiProcess import MultiProcess
+from multiproc.MultiProcess import MultiProcess
 from antares import *
 
 # ============================================================

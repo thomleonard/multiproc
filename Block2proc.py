@@ -77,7 +77,7 @@ class Block2proc:
         self.base.families['nomatch_blocks'] = nomatch_family
         for proc_idx in range(self.nb_proc):
             family = Family()
-            self.base.families['proc%i' % proc_idx] = family
+            self.base.families['proc%04i' % proc_idx] = family
             proc_has_nomatch = False
             for block_idx in self.proc2block[proc_idx]:
                 family[self.base.keys()[block_idx]] = self.base[block_idx]
@@ -125,14 +125,14 @@ class Block2proc:
         # compute mean number of point per proc
         mean_size = 0
         for proc_idx in range(self.nb_proc):
-            proc_family = self.base.families['proc%i' % proc_idx]
+            proc_family = self.base.families['proc%04i' % proc_idx]
             mean_size += self.base[proc_family].grid_points
         mean_size = float(mean_size) / float(self.nb_proc)
         # compute load balance
         mean_dist = 0
         max_dist = 0
         for proc_idx in range(self.nb_proc):
-            proc_family = self.base.families['proc%i' % proc_idx]
+            proc_family = self.base.families['proc%04i' % proc_idx]
             dist = abs(mean_size - self.base[proc_family].grid_points)
             mean_dist += dist
             if dist > max_dist:
@@ -173,7 +173,23 @@ class Block2proc:
 # =======================================
 
     def modulo_proc(self, modulo):
-        pass
+        modulo = int(modulo)
+        if self.nb_proc % modulo != 0:
+            print_error('number of proc %i is not divisible by %i' % (self.nb_proc, modulo))
+            raise ValueError
+        old_nb_proc = deepcopy(self.nb_proc)
+        old_proc2block = deepcopy(self.proc2block)
+        old_block2proc = deepcopy(self.block2proc)
+        self.nb_proc = old_nb_proc // modulo
+        self.proc2block = []
+        self.proc2block = [ \
+            np.concatenate([old_proc2block[proc_idx + self.nb_proc * modulo_idx] for modulo_idx in range(modulo)]) \
+            for proc_idx in range(self.nb_proc)] 
+        self.block2proc = old_block2proc % self.nb_proc
+        if self.base != None:
+            for proc_idx in range(old_nb_proc):
+                del self.base.families['proc%04i' % proc_idx]
+            self.__set_base()
 
     def all_nomatch_on_one_proc(self):
         print_2('commence la repartition des nomatchs')
