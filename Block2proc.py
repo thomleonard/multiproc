@@ -7,7 +7,6 @@ from antares.core.PrintUtility import print_error, print_debug, \
                                       print_1, print_2, print_object
 from scipy.spatial import cKDTree as KDTree
 from copy import deepcopy
-import re
 import os
 import numpy as np
 
@@ -173,6 +172,7 @@ class Block2proc:
 # =======================================
 
     def modulo_proc(self, modulo):
+        print_1('Modify number of procs')
         modulo = int(modulo)
         if self.nb_proc % modulo != 0:
             print_error('number of proc %i is not divisible by %i' % (self.nb_proc, modulo))
@@ -191,44 +191,78 @@ class Block2proc:
                 del self.base.families['proc%04i' % proc_idx]
             self.__set_base()
 
+    def set_block_to_proc(self, block_name, proc_number):
+        old_proc_number = self.get_block(block_name)['proc']
+        # modifie le num de proc du bloc
+        self.get_block(block_name)['proc'] = proc_number
+        # modifie les info du nouveau proc
+        self.get_proc(proc_number)['blocks'].append(block_name)
+        self.get_proc(proc_number)['nb_points'] += self.get_block(block_name)['nb_points']
+        if self.get_block(block_name)['nomatch'] :
+            self.get_proc(proc_number)['nomatch'] += 1
+            self.get_proc(proc_number)['blocks_nomatch'].append(block_name)
+        else :
+            self.get_proc(proc_number)['blocks_non_nomatch'].append(block_name)
+        # modifie les info de l'ancien proc
+        indx = self.get_proc(old_proc_number)['blocks'].index(block_name)
+        self.get_proc(old_proc_number)['blocks'].pop(indx)
+        self.get_proc(old_proc_number)['nb_points'] -= self.get_block(block_name)['nb_points']
+        if self.get_block(block_name)['nomatch'] :
+            self.get_proc(old_proc_number)['nomatch'] -= 1
+            indx = self.get_proc(old_proc_number)['blocks_nomatch'].index(block_name)
+            self.get_proc(old_proc_number)['blocks_nomatch'].pop(indx)
+        else :
+            indx = self.get_proc(old_proc_number)['blocks_non_nomatch'].index(block_name)
+            self.get_proc(old_proc_number)['blocks_non_nomatch'].pop(indx)
+        self.set_nomatch_numbers()
+
     def all_nomatch_on_one_proc(self):
-        print_2('commence la repartition des nomatchs')
-        # trouve le block avec le plus gros nomatch
-        nomatch_blocks = []
-        for proc in self.get_procs():
-            if proc['nomatch'] > 0:
-                      nomatch_blocks += proc['blocks_nomatch']
-        biggest = nomatch_blocks[0]
-        for block_name in nomatch_blocks[1:]:
-            block = self.get_block(block_name)
-            if block['nb_points'] > self.get_block(biggest)['nb_points']:
-                   biggest = block_name
-        nomatch_blocks.pop(nomatch_blocks.index(biggest))
-        target_proc = self.get_block(biggest)['proc']
+        print_1('Move all nomatch on one proc')
+        if self.base == None:
+            print_error('A base must be given to be able to detect nomatchs')
+            raise ValueError
+        # find block with the biggest nomatch
+        nomatch_blocks = deepcopy(self.base.families['nomatch_blocks'].keys())
+        biggest_nomatch = nomatch_blocks[0]
+        biggest_nb_points = np.prod(self.base[biggest_nomatch].shape)
+        for block_name in nomatch_blocks:
+            nb_points = np.prod(self.base[block_name].shape)
+            if nb_points > biggest_nb_points:
+                biggest_nb_points = nb_points
+                biggest_nomatch = block_name
+                
+        nomatch_blocks.remove(biggest_nomatch)
+        biggest_index = self.base.keys().index(biggest_nomatch)
+        target_proc = self.block2proc(biggest_index)
         # ---------------------------
         def find_closest(block_name, target_proc):
-            # trouve le block de taille la plus proche de celle de block_name sur le proc proc_target
-            non_nomatch_blocks_size = []
-            for block in self.get_proc(target_proc)['blocks_non_nomatch']:
-                 non_nomatch_blocks_size.append(self.get_block(block)['nb_points'])
-            if len(non_nomatch_blocks_size) == 0:
-                 xchange_block = False
+            # find the non-nomatch block with the closest size on the target_proc
+            non_nomatch_blocks = []
+            non_nomatch_sizes = []
+            for block_idx in self.proc2block[target_proc]:
+                if not self.base[block_idx].extras['has_nomatch']:
+                    non_nomatch_blocks.append(block_idx)
+                    non_nomatch_sizes.append(np.prod(self.base[block_idx]))
+            non_nomatch_sizes = np.array(non_nomatch_sizes)
+            if len(non_nomatch_blocks) == 0:
+                xchange_block = None
             else:
-                 kdtree = KDTree(zip(non_nomatch_blocks_size))
-                 distance, indice = kdtree.query(tuple([self.get_block(block_name)['nb_points']]), k=1)
-                 xchange_block = self.get_proc(target_proc)['blocks_non_nomatch'][indice]                   
+                xchange_block = non_nomatch_blocks.index( \
+                    np.argmin(abs(non_nomatch_sizes - np.prod(self.base[block_name].shape))))
             return xchange_block 
         # ---------------------------
         compteur = 0
         for block_name in nomatch_blocks:
-             if self.get_block(block_name)['proc'] != target_proc:
-                  xchange_block = find_closest(block_name, target_proc)  
-                  if xchange_block:
-                      self.set_block_to_proc(xchange_block, self.get_block(block_name)['proc'])
-                  self.set_block_to_proc(block_name, target_proc)
-                  compteur += 1
-        print_2('repartition finie')
-        print_3('%s blocks on ete deplaces'%compteur)
+            block_idx = self.base.keys().index(block_name)
+            origin_proc = self.block2proc[block_idx]
+            if origin_proc != target_proc:
+                xchange_block = find_closest(block_name, target_proc)
+                if xchange_block != None:
+                    self.set_block_to_proc(xchange_block, origin_proc)
+                    compteur += 1
+                self.set_block_to_proc(block_name, target_proc)
+                compteur += 1
+        print_2('%i blocks have been moved' % compteur)
 
     def dispatch_nomatch_on_procs(self, tolerance=0.2):
         compteur = 0
@@ -434,30 +468,6 @@ class Block2proc:
         return avec_plus, avec_moins, avec_max, avec_min
 
 
-    def set_block_to_proc(self, block_name, proc_number):
-        old_proc_number = self.get_block(block_name)['proc']
-        # modifie le num de proc du bloc
-        self.get_block(block_name)['proc'] = proc_number
-        # modifie les info du nouveau proc
-        self.get_proc(proc_number)['blocks'].append(block_name)
-        self.get_proc(proc_number)['nb_points'] += self.get_block(block_name)['nb_points']
-        if self.get_block(block_name)['nomatch'] :
-            self.get_proc(proc_number)['nomatch'] += 1
-            self.get_proc(proc_number)['blocks_nomatch'].append(block_name)
-        else :
-            self.get_proc(proc_number)['blocks_non_nomatch'].append(block_name)
-        # modifie les info de l'ancien proc
-        indx = self.get_proc(old_proc_number)['blocks'].index(block_name)
-        self.get_proc(old_proc_number)['blocks'].pop(indx)
-        self.get_proc(old_proc_number)['nb_points'] -= self.get_block(block_name)['nb_points']
-        if self.get_block(block_name)['nomatch'] :
-            self.get_proc(old_proc_number)['nomatch'] -= 1
-            indx = self.get_proc(old_proc_number)['blocks_nomatch'].index(block_name)
-            self.get_proc(old_proc_number)['blocks_nomatch'].pop(indx)
-        else :
-            indx = self.get_proc(old_proc_number)['blocks_non_nomatch'].index(block_name)
-            self.get_proc(old_proc_number)['blocks_non_nomatch'].pop(indx)
-        self.set_nomatch_numbers()
 
 
 
