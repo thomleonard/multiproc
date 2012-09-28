@@ -19,20 +19,9 @@ class MultiProcess:
     def set_block2proc(self, from_file=None):
         if from_file == None:
             nb_zones = len(self.base.keys())
-            zone_per_proc = nb_zones // self.nb_proc
-            rest = nb_zones - self.nb_proc * zone_per_proc
-            if rest != 0:
-                block2proc =  - np.ones((self.nb_proc, zone_per_proc + 1), dtype=np.int)
-            else:
-                block2proc =  - np.ones((self.nb_proc, zone_per_proc), dtype=np.int)
-    
-            for i in range(zone_per_proc):
-                block2proc[:, i] = self.base.keys()[i * self.nb_proc: (i + 1) * self.nb_proc]
-
-            if rest != 0:
-                block2proc[:rest, zone_per_proc] = self.base.keys()[zone_per_proc * self.nb_proc:]
+            block2proc = np.dstack((np.arange(nb_zones), np.arange(nb_zones) % self.nb_proc))
         else:
-            pass
+            raise NotImplementedError
         self.block2proc = block2proc
 
 
