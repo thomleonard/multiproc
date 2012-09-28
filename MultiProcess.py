@@ -19,7 +19,7 @@ class MultiProcess:
     def set_block2proc(self, from_file=None):
         if from_file == None:
             nb_zones = len(self.base.keys())
-            block2proc = np.dstack((np.arange(nb_zones), np.arange(nb_zones) % self.nb_proc))
+            block2proc = np.arange(nb_zones) % self.nb_proc
         else:
             raise NotImplementedError
         self.block2proc = block2proc
@@ -32,26 +32,26 @@ class MultiProcess:
         
         process = []
         queues = []
-        for i in range(self.nb_proc):
-            list_zones = tuple(self.block2proc[i][np.where(self.block2proc[i] >= 0)])
-            sub_base = self.base[list_zones]
+        for proc_idx in range(self.nb_proc):
+            zone_indices = tuple(np.where(self.block2proc == proc_idx)[0])
+            sub_base = self.base[zone_indices]
             queues.append(Queue())
             process.append(Process(target=self.func2parallelize, 
-                                   args=(queues[i], 
+                                   args=(queues[proc_idx], 
                                          sub_base, 
                                          self.func_keys)))
             # launch process
-            process[i].start()
+            process[proc_idx].start()
 
         # get output
         outputs = []
-        for i in range(self.nb_proc):
-            outputs.append(queues[i].get())
+        for proc_idx in range(self.nb_proc):
+            outputs.append(queues[proc_idx].get())
         
         # force to wait that all process are finish 
         # (and then that all gets have been done)
-        for i in range(self.nb_proc):
-            process[i].join()
+        for proc_idx in range(self.nb_proc):
+            process[proc_idx].join()
         
         return outputs
 
