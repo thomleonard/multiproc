@@ -1,6 +1,7 @@
 from multiprocessing import Process, Queue
 import numpy as np
 import antares
+from antares.core.PrintUtility import print_1
 
 class MultiProcess:
     
@@ -28,8 +29,7 @@ class MultiProcess:
 
     def execute(self):
         self.set_block2proc()
-        
-        print "\n >>>  Launch task on %s process" % self.nb_proc
+        print_1("Launch task on %s process" % self.nb_proc)
         verbose = antares.verbose(0)
         process = []
         queues = []
