@@ -1,5 +1,6 @@
 from multiprocessing import Process, Queue
 import numpy as np
+import antares
 
 class MultiProcess:
     
@@ -29,7 +30,7 @@ class MultiProcess:
         self.set_block2proc()
         
         print "\n >>>  Launch task on %s process" % self.nb_proc
-        
+        antares.verbose(0)
         process = []
         queues = []
         for proc_idx in range(self.nb_proc):
@@ -52,6 +53,6 @@ class MultiProcess:
         # (and then that all gets have been done)
         for proc_idx in range(self.nb_proc):
             process[proc_idx].join()
-        
+        antares.verbose(1)
         return outputs
 
