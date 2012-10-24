@@ -30,7 +30,8 @@ class MultiProcess:
     def execute(self):
         self.set_block2proc()
         print_1("Launch task on %s process" % self.nb_proc)
-        verbose = antares.verbose(0)
+        verbose = antares.verbose()
+        antares.verbose(0)
         process = []
         queues = []
         for proc_idx in range(self.nb_proc):
